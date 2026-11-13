@@ -1,10 +1,20 @@
 # dsh-sync
 
+把 DeepSeek Harness 的内容备份到 NAS 的 WebDAV 目录，支持多端共享与还原。
+
 Back up and sync DeepSeek Harness content to a NAS over WebDAV.
 
 Every scope (profile config, skills, memory, credentials, extra directories…) carries its own
 direction, so one machine can back up its sessions while sharing its skills bidirectionally and
 leaving credentials alone. The plugin adds a first-class **备份与同步** panel to the sidebar.
+
+## Screenshots
+
+![Home](assets/screenshots/home.webp)
+
+![Scope settings](assets/screenshots/scopes.webp)
+
+![Connection](assets/screenshots/connection.webp)
 
 ## What it syncs
 
