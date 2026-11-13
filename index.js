@@ -1,5 +1,5 @@
 /**
- * NAS sync: copy selected DSH content to a WebDAV collection, machine by machine.
+ * Remote sync: copy selected DSH content to a WebDAV collection, machine by machine.
  *
  * The plugin declares its whole selectable surface as Config, so DSH renders the
  * settings form for it; the same operation is exposed to the agent as the
@@ -491,7 +491,7 @@ function pickItems(source) {
 }
 
 /**
- * Register the NAS sync tool against the live Config.
+ * Register the sync tool against the live Config.
  * @param ctx - Host context.
  * @param config - the validated Config value.
  */
@@ -510,7 +510,7 @@ export function apply(ctx, config) {
 
   ctx.tools.register({
     name: 'nas_sync',
-    description: 'Sync selected DeepSeek Harness content with the configured NAS WebDAV collection. '
+    description: 'Sync selected DeepSeek Harness content with the configured WebDAV collection. '
       + 'Direction follows the plugin settings: push uploads into this machine slot, '
       + 'pull downloads for bootstrapping a new machine, two-way reconciles a shared tree with conflict copies. '
       + 'Use action "plan" to preview scope and size without writing, and "run" to transfer only changed files. '

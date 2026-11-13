@@ -1,7 +1,7 @@
 {
   "name": "dsh-sync",
-  "version": "1.0.2",
-  "description": "把 DeepSeek Harness 的内容备份到 NAS 的 WebDAV 目录，支持按内容项分别设置同步方向。",
+  "version": "1.0.3",
+  "description": "把 DeepSeek Harness 的配置、模型、MCP、插件清单、技能、记忆和自选目录备份与同步到 WebDAV，每个内容项可单独设置方向。",
   "type": "module",
   "license": "MIT",
   "author": "stone-yu",
@@ -19,8 +19,7 @@
     "deepseek-harness",
     "webdav",
     "backup",
-    "sync",
-    "nas"
+    "sync"
   ],
   "exports": {
     ".": "./index.js",

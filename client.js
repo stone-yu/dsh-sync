@@ -748,7 +748,7 @@ window.__ModuleLoader__.load({
       const header = h('header', { style: css.panelHead },
         h('div', { style: css.headText },
           h('h1', { style: css.panelTitle }, PANEL_TITLE),
-          h('p', { style: css.sub }, '把 DSH 的内容备份到 NAS，支持多端共享与还原。')))
+          h('p', { style: css.sub }, '把 DSH 的内容备份与同步到远程存储，支持多端共享与还原。')))
 
       const rowProps = row => ({
         key: row.key,

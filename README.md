@@ -1,115 +1,87 @@
 # dsh-sync
 
-把 DeepSeek Harness 的内容备份到 NAS 的 WebDAV 目录，支持多端共享与还原。
+把 DeepSeek Harness 的内容备份与同步到远程存储。当前支持 WebDAV，后续会支持 GitHub 同步。
 
-Back up and sync DeepSeek Harness content to a NAS over WebDAV.
+可备份与同步的项目：
 
-Every scope (profile config, skills, memory, credentials, extra directories…) carries its own
-direction, so one machine can back up its sessions while sharing its skills bidirectionally and
-leaving credentials alone. The plugin adds a first-class **备份与同步** panel to the sidebar.
-
-## Screenshots
-
-![Home](assets/screenshots/home.webp)
-
-![Scope settings](assets/screenshots/scopes.webp)
-
-![Connection](assets/screenshots/connection.webp)
-
-## What it syncs
-
-| Scope | Contents |
+| 内容项 | 包含什么 |
 | --- | --- |
-| `baseConfig` | `cordis.patch.yml`, `cordis.yml`, desktop preferences, locale |
-| `modelConfig` | Provider routes and model lists, exported as JSON |
-| `mcpServers` | MCP loader rows, exported as JSON |
-| `pluginInventory` | Profile `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` |
-| `skills` | `~/.agents/skills` and its version lockfile |
-| `credentials` | `.credentials.yaml` (off by default) |
-| `memory` | A memory storage directory you choose |
-| `extraPaths` | Any directories or files you add, optionally at a custom remote path |
+| 基础配置 | `cordis.patch.yml`、`cordis.yml`、桌面偏好、语言 |
+| 模型配置 | Provider 路由与模型清单，导出为 JSON |
+| MCP 服务器 | 已挂载的 MCP 装载行，导出为 JSON |
+| 已安装插件 | Profile 的 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` |
+| 技能 | `~/.agents/skills` 与版本锁文件 |
+| API 密钥与令牌 | `.credentials.yaml`（默认关闭） |
+| 记忆 | 你指定的记忆存储目录 |
+| 其他文件目录 | 你自行添加的任意目录或文件，可指定独立的远端位置 |
 
-Each scope can be switched on or off independently.
+每一项都能单独开关。侧栏有一个独立的 **备份与同步** 面板。
 
-## Directions
+## 界面
 
-| Direction | Behaviour |
+![首页](assets/screenshots/home.webp)
+
+![同步内容配置](assets/screenshots/scopes.webp)
+
+![连接配置](assets/screenshots/connection.webp)
+
+面板分三页：
+
+- **首页**：每个内容项一张状态卡（本地/远端文件数、待上传数），以及「刷新比对」「按方向全部执行」。
+- **同步内容配置**：每项的开关、方向、目录列表，改完需手动保存。
+- **连接配置**：WebDAV 地址与凭据、远端子目录、设备名称、pull 与冲突策略。
+
+## 四种同步方向
+
+每一项自己决定方向，一次运行按方向分组执行。
+
+| 方向 | 行为 |
 | --- | --- |
-| `off` | Not synced at all. |
-| `push` | Writes into this machine's slot `machines/<device>/`. Incremental by file content hash. Never deletes remotely, never writes back locally. |
-| `pull` | Only downloads, for bootstrapping a new machine. Overwrite policy is configurable: only missing / newer / always. |
-| `two-way` | Reconciles against the shared tree `shared/` using a stored baseline, so "only I changed" is distinguishable from "only the other machine changed". Genuine conflicts keep both copies. |
+| 关闭 | 不参与任何同步。 |
+| 上传备份 | 写进这台机器的槽位 `machines/<设备名>/`。按文件内容哈希增量上传，永不删除远端，也永不回写本地。 |
+| 下载还原 | 只从远端读回本地，用于新机器初始化。覆盖范围可选：只补缺失 / 远端更新才覆盖 / 总是覆盖。 |
+| 双向同步 | 与共享区 `shared/` 对账。靠基线区分「只有我改了」和「只有别人改了」；双方都改时保留双方副本。 |
 
-Deletion is never propagated in any direction — a file removed locally stays on the remote.
+任何方向都不传播删除——本地删掉的文件在远端仍然保留。
 
-Scopes whose content is machine-specific (model config, MCP rows, plugin inventory, memory) can only
-be pushed or pulled, not reconciled two-way.
+模型配置、MCP、已安装插件这类从实时服务导出或含本机路径的项，只能上传或下载，不做双向对账。
 
-## Remote layout
+## 远端目录结构
 
 ```
-<webdav>/<remoteDir>/
-  machines/<device>/<scope>/<rootTag>/…        one-way backup, per machine
-  machines/<device>/.dsh-nas-sync/manifest.json   sha256 of what was uploaded
-  shared/<scope>/<rootTag>/…                   two-way shared tree
-  shared/.dsh-nas-sync/base-<device>.json      this machine's two-way baseline
+<远端根>/<远端子目录>/
+  machines/<设备名>/<内容项>/<根标记>/…        单向备份，每台机器一个槽位
+  machines/<设备名>/.dsh-nas-sync/manifest.json   已上传文件的 sha256 清单
+  shared/<内容项>/<根标记>/…                   双向同步的共享区
+  shared/.dsh-nas-sync/base-<设备名>.json      本机的双向基线
 ```
 
-`<rootTag>` records which local root a file came from (`dsh` = DSH home, `agents` = `~/.agents`,
-`home` = user home, `abs` = an absolute path), which is what makes a pull able to rebuild the
-original absolute path.
+`<根标记>` 记录文件来自哪个本地根目录（`dsh` = DSH 主目录，`agents` = `~/.agents`，`home` = 用户主目录，`abs` = 其他绝对路径），有了它，下载还原才能把文件放回原来的绝对路径。
 
-## The panel
+内容项自身的远端目录会直接显示在面板每一行上。
 
-`备份与同步` in the sidebar icon list opens a panel with three tabs:
+## Agent 工具
 
-- **首页** — per-scope status cards (local/remote file counts, pending uploads) plus
-  "refresh comparison" and "run all in their directions".
-- **同步内容配置** — the switch, direction and path lists for every scope, with a save button.
-  Nothing takes effect until it is saved.
-- **连接配置** — WebDAV URL, credentials, remote subdirectory, device name, pull/conflict policy.
+插件注册一个工具：
 
-## Agent tool
+- `nas_sync` —— `{ action: "plan" | "run", items?, mode?, dryRun? }`。`plan` 只算差异不写任何东西；`run` 真正传输。
 
-The plugin registers one tool:
-
-- `nas_sync` — `{ action: "plan" | "run", items?, mode?, dryRun? }`. `plan` computes the delta
-  without writing anything; `run` performs the transfer.
-
-## Notes and limits
-
-- **Credentials are plaintext.** `.credentials.yaml` is uploaded unencrypted if you enable that
-  scope, so anyone who can read the NAS copy can use the tokens in it. It is off by default.
-- **http:// is plaintext on the wire.** The plugin warns on every run until the endpoint is https.
-- **`link:` / `file:` dependencies are not rewritten.** A profile `package.json` containing absolute
-  paths is backed up as-is and needs manual fixing on another machine.
-- **Two-way merges nothing textually.** Conflicting files are preserved as
-  `<file>.conflict-<device>-<timestamp>` rather than merged.
-- **The comparison walks the remote.** Opening the panel paints from configuration immediately and
-  fills the numbers in the background; remote directory listings are cached for 15 seconds and
-  bypassed when you press refresh.
-
-## Install
+## 安装
 
 ```
 dsh plugin add github:stone-yu/dsh-sync
 ```
 
-Or use **Plugins → Add plugin** in DSH and point it at this repository.
+也可以在 DSH 的 **插件 → 添加插件** 里指向本仓库。
 
-Requires a DSH build that mounts a WebDAV-reachable browser session; the Host half declares
-`@deepseek-ai/schemastery` as a peer dependency.
+## 已知限制
 
-## 中文说明
+- **API 密钥是明文。** 开启那项后 `.credentials.yaml` 会以未加密形式上传，能读取远端副本的人可以直接使用其中的令牌。默认关闭。
+- **`http://` 是明文链路。** 只要地址不是 https，每次运行都会提示。
+- **`link:` / `file:` 依赖不做重写。** 含本机绝对路径的 profile `package.json` 会原样备份，换机器需手工修正。
+- **双向同步不做文本合并。** 冲突文件会被保存为 `<文件>.conflict-<设备名>-<时间戳>`，而不是合并成一个。
+- **比对需要枚举远端目录。** 打开面板先按配置渲染，数字在后台补齐；远端目录清单缓存 15 秒，点「刷新比对」时绕过硬缓存。
 
-把 DSH 的内容备份到 NAS 的 WebDAV 目录，支持多端共享与还原。
-
-- **每个内容项独立设置方向**：关闭 / 上传备份 / 下载还原 / 双向同步。
-- **上传按文件内容哈希增量**，单个文件是整文件替换；**任何方向都不传播删除**。
-- **双向同步**用基线做三方比对，冲突时保留双方副本，不做文本合并。
-- 侧栏有独立面板（首页 / 同步内容配置 / 连接配置），改配置需手动保存。
-- 记忆与其他文件目录的路径可自行配置；其他文件目录还能指定独立的远端位置，用来放公共产出物。
-
-## License
+## 许可
 
 MIT
