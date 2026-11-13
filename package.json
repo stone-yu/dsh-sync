@@ -1,0 +1,55 @@
+{
+  "name": "dsh-sync",
+  "version": "1.0.0",
+  "description": "Back up and sync DeepSeek Harness content to a NAS over WebDAV, with per-scope direction and conflict handling.",
+  "type": "module",
+  "license": "MIT",
+  "author": "stone-yu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stone-yu/dsh-sync.git"
+  },
+  "homepage": "https://github.com/stone-yu/dsh-sync#readme",
+  "bugs": {
+    "url": "https://github.com/stone-yu/dsh-sync/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "dsh",
+    "deepseek-harness",
+    "webdav",
+    "backup",
+    "sync",
+    "nas"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": ">=3.19.0-0 <4"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}

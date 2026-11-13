@@ -1,0 +1,3 @@
+- insert:
+    - id: nas-sync
+      name: 'dsh-sync'

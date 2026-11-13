@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DSH backup and sync",
+    "description": "Back up DSH content to a NAS, with one-way backup, two-way sync, and new-machine restore. Review scope and remote comparison here, and edit the destination.",
+    "detail": "docs/DETAIL.md"
+  }
+}

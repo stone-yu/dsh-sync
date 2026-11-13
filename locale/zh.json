@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DSH备份与同步",
+    "description": "把 DSH 的内容备份到 NAS，支持单向备份、双向同步与新机器还原。在此页查看同步范围、与服务端的比对，并修改远端地址与账号。",
+    "detail": "docs/DETAIL.md"
+  }
+}
