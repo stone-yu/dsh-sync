@@ -1,6 +1,6 @@
 {
   "name": "dsh-sync",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "把 DeepSeek Harness 的内容备份到 NAS 的 WebDAV 目录，支持按内容项分别设置同步方向。",
   "type": "module",
   "license": "MIT",
@@ -35,7 +35,7 @@
     "cordis.patch.yml",
     "locale/*.json",
     "docs",
-    "assets",
+    "assets/icon-180.png",
     "icon.svg"
   ],
   "peerDependencies": {
