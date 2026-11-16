@@ -74,6 +74,8 @@ dsh plugin add github:stone-yu/dsh-sync
 
 也可以在 DSH 的 **插件 → 添加插件** 里指向本仓库。
 
+安装包名为 `@stone-yu/dsh-sync`（仓库名仍为 `stone-yu/dsh-sync`），以避免与市场中的其他同名插件冲突。配置项标识仍为 `nas-sync`。从旧的无 scope 包名升级时，先保留旧连接与同步设置，再迁移到新包；包名变更不保证自动继承旧配置。
+
 ## 已知限制
 
 - **API 密钥是明文。** 开启那项后 `.credentials.yaml` 会以未加密形式上传，能读取远端副本的人可以直接使用其中的令牌。默认关闭。

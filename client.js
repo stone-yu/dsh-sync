@@ -6,7 +6,7 @@
  * the server, and a button that syncs just that scope.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-sync',
+  id: '@stone-yu/dsh-sync',
   factory(require) {
     const React = require('react')
     const h = React.createElement

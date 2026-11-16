@@ -20,7 +20,9 @@ import { formatBytes, run } from './lib/sync.js'
 import { WebdavClient, WebdavError } from './lib/webdav.js'
 
 /** Services this plugin needs at registration time. */
-export const inject = ['tools']
+// Routes are essential to the panel. Let Cordis wait for connection and reapply
+// this plugin when that service is replaced, rather than probing it once.
+export const inject = ['tools', 'connection']
 
 /** One participation switch per standalone scope. */
 const itemEnabled = Object.fromEntries(ITEMS.map(item => [
@@ -280,7 +282,7 @@ function summarize(report) {
       && routeState.registered.length === 4
       ? ''
       : `connection=${routeState.connection} register=${routeState.register} `
-        + `ok=${routeState.registered.length}/3`
+        + `ok=${routeState.registered.length}/4`
         + (routeState.errors.length > 0 ? ` 错误：${routeState.errors.join(' | ')}` : ''),
     warnings: report.warnings,
     errors: report.errors,
@@ -548,8 +550,10 @@ function registerRoutes(ctx, config) {
   routeState.registered = []
   routeState.errors = []
 
-  const connection = ctx.get('connection')
-  if (connection?.fetch?.register === undefined) return
+  const connection = ctx.connection
+  if (typeof connection?.fetch?.register !== 'function') {
+    throw new Error('dsh-sync requires connection.fetch.register to serve its panel API')
+  }
 
   const routes = [
     {
@@ -657,14 +661,16 @@ function registerRoutes(ctx, config) {
         routeState.errors.push(`${route.path}: ${String(error?.message ?? error)}`)
       }
     }
-    return () => {
-      for (const dispose of disposers) {
+    return async () => {
+      // Fetch route disposers are asynchronous. Await every removal before a
+      // replacement connection/plugin generation registers these exact paths.
+      await Promise.all(disposers.map(async dispose => {
         try {
-          dispose()
+          await dispose()
         } catch {
           // A route already gone is not an error during teardown.
         }
-      }
+      }))
     }
   })
 }
