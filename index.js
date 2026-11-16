@@ -18,6 +18,7 @@ import { DIRECTIONS, ITEMS, MACHINE_NAME_PATTERN, allowedDirections } from './li
 import { buildStatus, describeScopes, invalidateRemoteCache } from './lib/status.js'
 import { formatBytes, run } from './lib/sync.js'
 import { WebdavClient, WebdavError } from './lib/webdav.js'
+import { listRestoreSources, restoreItem } from './lib/restore.js'
 
 /** Services this plugin needs at registration time. */
 // Routes are essential to the panel. Let Cordis wait for connection and reapply
@@ -73,7 +74,7 @@ export const Config = z.object({
     .volatile()
     .description('「记忆」的存储目录。留空则自动探测；支持 ~ 表示用户主目录。'),
   items: z.object(itemDirections)
-    .description('同步内容的方向：push 只上传；pull 只下载；two-way 双向。开关关闭时该项不参与。'),
+    .description('同步内容的方向：push 上传备份；two-way 双向。下载还原是独立的一次性操作。开关关闭时不参与常规同步。'),
 })
 
 /**
@@ -105,7 +106,8 @@ function readConfig(config) {
     const enabled = rawSwitch === undefined
       ? (rawDirection === false ? false : rawDirection === 'off' ? false : true)
       : rawSwitch === true
-    const direction = typeof rawDirection === 'string' && rawDirection !== 'off' ? rawDirection : 'push'
+    // Legacy download-only schedules become uploads; restore is now one-shot.
+    const direction = rawDirection === 'two-way' && allowedDirections(item).includes('two-way') ? 'two-way' : 'push'
     items[item.key] = enabled ? direction : 'off'
     rawDirections[item.key] = direction
     rawEnabled[item.key] = enabled
@@ -279,10 +281,10 @@ function summarize(report) {
     routes: routeState.connection === 'present'
       && routeState.register === 'callable'
       && routeState.errors.length === 0
-      && routeState.registered.length === 4
+      && routeState.registered.length === 6
       ? ''
       : `connection=${routeState.connection} register=${routeState.register} `
-        + `ok=${routeState.registered.length}/4`
+        + `ok=${routeState.registered.length}/6`
         + (routeState.errors.length > 0 ? ` 错误：${routeState.errors.join(' | ')}` : ''),
     warnings: report.warnings,
     errors: report.errors,
@@ -556,6 +558,33 @@ function registerRoutes(ctx, config) {
   }
 
   const routes = [
+    {
+      path: `${API_PREFIX}/restore-sources`,
+      methods: ['GET'],
+      fetch: async () => {
+        try {
+          const live = readConfig(config)
+          return json(await listRestoreSources(live, makeClient(live)))
+        } catch (error) {
+          return json({ ok: false, error: String(error?.message ?? error) }, 400)
+        }
+      },
+    },
+    {
+      path: `${API_PREFIX}/restore`,
+      methods: ['POST'],
+      fetch: async request => {
+        try {
+          const body = await readJson(request)
+          const live = readConfig(config)
+          const result = await restoreItem(live, makeClient(live), body)
+          invalidateRemoteCache()
+          return json(result)
+        } catch (error) {
+          return json({ ok: false, error: String(error?.message ?? error) }, 400)
+        }
+      },
+    },
     {
       path: `${API_PREFIX}/overview`,
       methods: ['GET', 'HEAD'],

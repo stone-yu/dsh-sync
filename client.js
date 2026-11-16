@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useCallback, useEffect, useState } = React
+    const { useCallback, useEffect, useRef, useState } = React
 
     const API = '/api/dsh-nas-sync'
     const SECTION_ID = 'dsh-backup-sync'
@@ -44,14 +44,17 @@ window.__ModuleLoader__.load({
     const DIRECTION_LABEL = {
       off: '关闭',
       push: '上传备份',
-      pull: '下载还原',
       'two-way': '双向同步',
+    }
+
+    /** Legacy pull is now a one-time action, never a saved sync direction. */
+    function syncDirection(row, value) {
+      return value === 'two-way' && row.allowed?.includes('two-way') ? 'two-way' : 'push'
     }
 
     const ACTION_LABEL = {
       off: '已关闭',
       push: '上传',
-      pull: '下载',
       'two-way': '对账同步',
     }
 
@@ -98,7 +101,10 @@ window.__ModuleLoader__.load({
         try {
           response = await fetch(url, init)
         } catch (error) {
+          if (init?.signal?.aborted) throw error
           last = new Error(`无法连接 ${url}：${error.message}`)
+          // A failed mutation may already have reached Host. Never replay it.
+          if (init?.method && init.method !== 'GET' && init.method !== 'HEAD') throw last
           continue
         }
         const body = await response.json().catch(() => null)
@@ -346,13 +352,6 @@ window.__ModuleLoader__.load({
             h('input', { ...bind('password'), type: 'password', placeholder: '••••••' })),
           h('label', { style: css.field }, h('span', { style: css.label }, '远端子目录'),
             h('input', bind('remoteDir'))),
-          h('label', { style: css.field }, h('span', { style: css.label }, 'pull 来源'),
-            h('input', { ...bind('pullFrom'), placeholder: '留空 = 共享区' })),
-          h('label', { style: css.field }, h('span', { style: css.label }, 'pull 覆盖策略'),
-            h('select', { value: draft.overwrite, style: css.input, onChange: e => onChange('overwrite', e.target.value) },
-              h('option', { value: 'missing' }, 'missing ｜ 只补缺失'),
-              h('option', { value: 'newer' }, 'newer ｜ 远端更新才覆盖'),
-              h('option', { value: 'always' }, 'always ｜ 总是覆盖'))),
           h('label', { style: css.field }, h('span', { style: css.label }, '双向冲突策略'),
             h('select', { value: draft.conflict, style: css.input, onChange: e => onChange('conflict', e.target.value) },
               h('option', { value: 'both' }, 'both ｜ 保留双方副本'),
@@ -426,10 +425,62 @@ window.__ModuleLoader__.load({
           }, running ? '执行中…' : (enabled === true ? ACTION_LABEL[direction] : '已关闭'))))
     }
 
+    /** Destructive restore stays inline, separate from the saved direction. */
+    function RestoreConfirmation({ row, state, blocked, onSource, onCancel, onConfirm }) {
+      const loading = state.phase === 'loading'
+      const running = state.phase === 'running'
+      return h('section', {
+        style: { ...css.card, marginTop: '8px', background: 'var(--dsw-alias-bg-layer-2)' },
+        'aria-label': `${row.title}下载还原确认`, 'aria-busy': loading || running,
+      },
+      h('h3', { style: css.title }, `下载还原：${row.title}`),
+      h('p', { style: { ...css.note, color: TONE.warn } },
+        '将使用远端内容覆盖本地同名文件，未备份的本地修改会丢失。本地未匹配的文件不会删除。'),
+      h('p', { style: css.note }, '此次操作使用已保存的配置，不采用未保存的方向或目录改动，也不会更改同步方向。'),
+      row.key === 'extraPaths'
+        ? h('p', { style: css.note }, '自定义远端目录始终从已保存的独立远端位置读取，不随设备备份来源切换。')
+        : null,
+      row.key === 'baseConfig'
+        ? h('p', { style: css.note }, '配置文件还原后可能需要重启 DSH 才会生效。')
+        : null,
+      row.key === 'pluginInventory'
+        ? h('p', { style: css.note }, '仅还原插件清单与锁文件，不会自动安装插件依赖；还原后需重新安装依赖。')
+        : null,
+      loading ? h('p', { style: css.note, role: 'status' }, '正在读取远端备份来源…') : null,
+      !loading && state.sources.length > 0
+        ? h('label', { style: { ...css.field, marginTop: '10px' } },
+          h('span', { style: css.label }, '选择备份来源'),
+          h('select', {
+            style: css.input,
+            value: state.source === null ? '@choose' : state.source,
+            disabled: running,
+            onChange: event => onSource(event.target.value),
+          },
+          h('option', { value: '@choose', disabled: true }, '请选择一份备份'),
+          state.sources.map(source => h('option', { key: source.id, value: source.id }, source.label))))
+        : null,
+      !loading && !state.error && state.sources.length === 0
+        ? h('p', { style: css.note }, '远端暂无可用备份来源。请先在其他设备上传备份。')
+        : null,
+      state.error ? h('p', { style: { ...css.note, color: TONE.bad }, role: 'alert' }, state.error) : null,
+      h('div', { style: { ...css.actions, marginTop: '12px' } },
+        h('button', { type: 'button', style: css.button, disabled: running, onClick: onCancel }, '取消'),
+        h('button', {
+          type: 'button', style: { ...css.button, ...css.primary },
+          disabled: loading || running || blocked || state.source === null || state.sources.length === 0,
+          onClick: onConfirm,
+        }, running ? '正在覆盖并还原…' : '确认覆盖并还原')))
+    }
+
     function ItemRow(props) {
-      const { row, direction, enabled, busy, dirty, onEnabled, onDirection, dirList, dirDraft, onDirDraft, onAddDir, onRemoveDir, onEditRemote, remoteDraft, onRemoteDraft } = props
+      const { row, direction, enabled, busy, dirty, onEnabled, onDirection, dirList, dirDraft, onDirDraft, onAddDir, onRemoveDir, onEditRemote, remoteDraft, onRemoteDraft, restore, onRestore, onRestoreSource, onRestoreCancel, onRestoreConfirm } = props
       const [text, tone] = STATUS_TEXT[row.status] || ['—', 'idle']
       const statusLabel = row.message ? `${text} · ${row.message}` : text
+      const generated = row.key === 'modelConfig' || row.key === 'mcpServers'
+      const restoreSupported = !generated && row.restoreSupported !== false
+      const restoreNote = row.restoreNote || (generated
+        ? '模型配置与 MCP 的脱敏导出 JSON 不能直接写回运行配置，请随基础配置还原，或手动导入对应配置。'
+        : '当前项目不支持下载还原。')
 
       return h('div', { style: css.item },
         h('div', { style: css.itemHead },
@@ -442,11 +493,23 @@ window.__ModuleLoader__.load({
             h('span', { style: css.itemTitle }, row.title),
             h('span', { style: css.itemRemotePath, title: '远端目录（相对远端子目录）' }, row.remotePath || '—'),
             h('span', { style: { ...css.chip, color: TONE[tone] } }, statusLabel)),
-          dirty === true
-            ? h('span', { style: css.dirtyChip, title: '这一项有未保存的改动' }, '已修改')
-            : null),
+          h('div', { style: { ...css.actions, alignItems: 'center', justifyContent: 'flex-end' } },
+            dirty === true
+              ? h('span', { style: css.dirtyChip, title: '这一项有未保存的改动' }, '已修改')
+              : null,
+            h('button', {
+              type: 'button', style: { ...css.button, ...css.small },
+              disabled: busy !== '' || !restoreSupported,
+              title: restoreSupported ? `从远端备份覆盖还原${row.title}，与参与同步开关无关` : restoreNote,
+              onClick: onRestore,
+            }, '下载还原'))),
 
         h('div', { style: css.itemDesc }, row.note),
+        !restoreSupported ? h('div', { style: css.itemDesc }, restoreNote) : null,
+        restore ? h(RestoreConfirmation, {
+          row, state: restore, blocked: busy !== '', onSource: onRestoreSource,
+          onCancel: onRestoreCancel, onConfirm: onRestoreConfirm,
+        }) : null,
 
         h('div', { style: css.itemMeta },
           h('label', { style: css.metaItem },
@@ -457,7 +520,7 @@ window.__ModuleLoader__.load({
               disabled: enabled !== true,
               'aria-label': `${row.title} 的同步方向`,
               onChange: event => onDirection(event.target.value),
-            }, row.allowed.filter(value => value !== 'off').map(value => h('option', { key: value, value },
+            }, row.allowed.filter(value => value === 'push' || value === 'two-way').map(value => h('option', { key: value, value },
               DIRECTION_LABEL[value] || value)))),
           h('span', { style: css.metaItem },
             h('span', { style: css.label }, '本地'),
@@ -546,6 +609,15 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState('')
       const [syncing, setSyncing] = useState(false)
       const [message, setMessage] = useState(null)
+      const [restore, setRestore] = useState(null)
+      const restoreEpoch = useRef(0)
+      const restoreAbort = useRef(null)
+      const restoreRunning = useRef(false)
+
+      useEffect(() => () => {
+        restoreEpoch.current += 1
+        restoreAbort.current?.abort()
+      }, [])
 
       const adopt = useCallback((next, syncDrafts = true) => {
         setStatus(next)
@@ -554,7 +626,7 @@ window.__ModuleLoader__.load({
         const switches = {}
         for (const row of next.rows) {
           switches[row.key] = row.direction !== 'off'
-          directions[row.key] = row.configuredDirection || 'push'
+          directions[row.key] = syncDirection(row, row.configuredDirection)
         }
         setItems(directions)
         setEnabled(switches)
@@ -588,8 +660,10 @@ window.__ModuleLoader__.load({
           cachedStatusAt = Date.now()
           // A silent refresh must not overwrite edits the user already started.
           adopt(next, !silent)
+          return next
         } catch (error) {
           if (!silent) setMessage({ tone: 'bad', text: `读取状态失败：${error.message}` })
+          return null
         } finally {
           if (!silent) setBusy('')
           else setSyncing(false)
@@ -685,7 +759,7 @@ window.__ModuleLoader__.load({
       const saveConnection = useCallback(async () => {
         setBusy('conn')
         try {
-          const settings = { ...conn }
+          const { pullFrom: _pullFrom, overwrite: _overwrite, ...settings } = conn
           if (settings.password === '') delete settings.password
           await post(`${API}/config`, { settings })
           setMessage({ tone: 'ok', text: '连接设置已保存。' })
@@ -711,6 +785,75 @@ window.__ModuleLoader__.load({
         await load('refresh')
       }, [load])
 
+      const cancelRestore = useCallback(() => {
+        // Once submitted, a restore is not safely cancellable. Keep its progress
+        // visible; cancellation here only dismisses the preflight confirmation.
+        if (restoreRunning.current) return
+        restoreEpoch.current += 1
+        restoreAbort.current?.abort()
+        restoreAbort.current = null
+        setRestore(null)
+      }, [])
+
+      const openRestore = useCallback(async row => {
+        if (restoreRunning.current || busy !== '') return
+        restoreAbort.current?.abort()
+        const controller = new AbortController()
+        restoreAbort.current = controller
+        const epoch = ++restoreEpoch.current
+        setMessage(null)
+        setRestore({ key: row.key, sources: [], source: null, phase: 'loading', error: '' })
+        try {
+          const result = await request(`${API}/restore-sources`, { signal: controller.signal })
+          if (epoch !== restoreEpoch.current || controller.signal.aborted) return
+          if (!Array.isArray(result?.sources)) throw new Error('远端备份来源返回格式不正确')
+          const sources = result.sources.filter(source => typeof source?.id === 'string' && typeof source?.label === 'string')
+          // Prefer this machine's backup, then another machine. The shared tree
+          // is only selected explicitly, never silently used as the default.
+          const preferred = sources.find(source => source.id !== '' && source.id === status?.machine)
+            || sources.find(source => source.id !== '')
+          setRestore({ key: row.key, sources, source: preferred?.id ?? null, phase: 'ready', error: '' })
+        } catch (error) {
+          if (epoch !== restoreEpoch.current || controller.signal.aborted) return
+          setRestore({ key: row.key, sources: [], source: null, phase: 'ready', error: `读取备份来源失败：${error.message}` })
+        }
+      }, [busy, status?.machine])
+
+      const confirmRestore = useCallback(async () => {
+        if (!restore || restore.phase !== 'ready' || restoreRunning.current || busy !== ''
+          || restore.source === null || !restore.sources.some(source => source.id === restore.source)) return
+        const epoch = restoreEpoch.current
+        const { key, source } = restore
+        restoreRunning.current = true
+        setBusy(`restore:${key}`)
+        setMessage(null)
+        setRestore(current => current ? { ...current, phase: 'running', error: '' } : current)
+        try {
+          // Only item identity and source are sent: the server applies saved
+          // configuration, never this page's unsaved direction/path drafts.
+          const result = await post(`${API}/restore`, { item: key, source, confirmed: true })
+          if (epoch !== restoreEpoch.current) return
+          const successText = result.text || '下载还原完成。'
+          setMessage({ tone: 'ok', text: successText })
+          setRestore(null)
+          const refreshed = await load('refresh', true, true)
+          if (epoch === restoreEpoch.current && refreshed === null) {
+            setMessage({
+              tone: 'warn',
+              text: `${successText}\n还原已完成，但刷新比对失败；当前仍显示上次比对结果，请手动刷新。`,
+            })
+          }
+        } catch (error) {
+          if (epoch !== restoreEpoch.current) return
+          const text = `下载还原失败：${error.message}`
+          setMessage({ tone: 'bad', text })
+          setRestore(current => current ? { ...current, phase: 'ready', error: text } : current)
+        } finally {
+          restoreRunning.current = false
+          if (epoch === restoreEpoch.current) setBusy('')
+        }
+      }, [restore, busy, load])
+
       const rows = status === null ? [] : status.rows
       const totals = status === null ? null : status.totals
       // Execution follows what is SAVED, never the unsaved draft: a switch flipped
@@ -721,7 +864,7 @@ window.__ModuleLoader__.load({
       if (status !== null) {
         for (const row of rows) {
           if (enabled[row.key] !== (row.direction !== 'off')
-            || items[row.key] !== (row.configuredDirection || 'push')) {
+            || items[row.key] !== syncDirection(row, row.configuredDirection)) {
             dirtyKeys.add(row.key)
           }
         }
@@ -741,7 +884,8 @@ window.__ModuleLoader__.load({
           type: 'button',
           role: 'tab',
           'aria-selected': view === entry.key ? 'true' : 'false',
-          onClick: () => setView(entry.key),
+          disabled: busy.startsWith('restore:'),
+          onClick: () => { cancelRestore(); setView(entry.key) },
           style: { ...css.tab, ...(view === entry.key ? css.tabActive : {}) },
         }, entry.label)))
 
@@ -753,7 +897,7 @@ window.__ModuleLoader__.load({
       const rowProps = row => ({
         key: row.key,
         row,
-        direction: items[row.key] || row.configuredDirection || 'push',
+        direction: syncDirection(row, items[row.key] || row.configuredDirection),
         enabled: enabled[row.key] === true,
         busy,
         configured: Boolean(status && status.configured),
@@ -761,6 +905,13 @@ window.__ModuleLoader__.load({
         onDirection: value => changeDirection(row.key, value),
         onSync: key => runScopes([key], false, `item:${key}`),
         dirty: dirtyKeys.has(row.key),
+        restore: restore?.key === row.key ? restore : null,
+        onRestore: () => openRestore(row),
+        onRestoreSource: source => setRestore(current => current && current.phase !== 'running'
+          && current.sources.some(entry => entry.id === source)
+          ? { ...current, source, error: '' } : current),
+        onRestoreCancel: cancelRestore,
+        onRestoreConfirm: confirmRestore,
         dirList: PATH_ROWS.includes(row.key) ? dirLists[row.key] : undefined,
         dirDraft: dirDrafts[row.key] || '',
         onDirDraft: value => setDirDrafts(current => ({ ...current, [row.key]: value })),
@@ -851,16 +1002,16 @@ window.__ModuleLoader__.load({
               + '本地删掉的文件不会从远端删除，远端也从不回写本地。'),
             h('span', { style: css.rulesTerm }, '下载还原'),
             h('span', { style: css.rulesText },
-              '只从远端读回本地，从不上传。用于新机器初始化，'
-              + '覆盖范围按「连接配置」里的 pull 覆盖策略决定（只补缺失 / 远端更新才覆盖 / 总是覆盖）。'),
+              '每项右上角的独立一次性操作，不属于同步方向。选择备份来源并确认后，'
+              + '远端文件会覆盖本地同名文件；本地未匹配的文件不删除。使用已保存的配置，不采用未保存的改动。'),
             h('span', { style: css.rulesTerm }, '双向同步'),
             h('span', { style: css.rulesText },
               '与共享区 shared/ 对账，两边都会写。靠基线区分「只有我改了」和「只有别人改了」；'
               + '双方都改时按冲突策略保留双方副本。删除同样不传播。'),
             h('span', { style: css.rulesTerm }, '注意'),
             h('span', { style: css.rulesText },
-              '模型配置、MCP、已安装插件、记忆这类从实时服务导出或含本机路径的项，'
-              + '只能选 关闭 / 上传备份 / 下载还原，选不了双向。')),
+              '模型配置、MCP、已安装插件这类从实时服务导出或含本机路径的项，'
+              + '方向只可选上传备份，参与开关独立控制。模型配置与 MCP 的导出文件不能直接还原，请随基础配置恢复。')),
           h('div', { style: css.list },
             rows.map(row => h(ItemRow, rowProps(row)))),
           pendingChanges

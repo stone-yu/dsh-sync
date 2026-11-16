@@ -1,6 +1,6 @@
 {
   "name": "@stone-yu/dsh-sync",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "把 DeepSeek Harness 的配置、模型、MCP、插件清单、技能、记忆和自选目录备份与同步到 WebDAV，每个内容项可单独设置方向。",
   "type": "module",
   "license": "MIT",
